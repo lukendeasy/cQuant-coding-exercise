@@ -5,9 +5,325 @@ date: "3/29/2022"
 output: html_document
 ---
 
-```{r, echo = FALSE}
+```{r Setup}
 # Reading in core packages
 library(tidyverse)
 library(ggplot2)
+library(lubridate)
 ```
 
+```{r Reading in Core Data}
+# Reading in core data
+prices_dat_2016 <- read_csv("ERCOT_DA_Prices_2016.csv")
+prices_dat_2017 <- read_csv("ERCOT_DA_Prices_2017.csv")
+prices_dat_2018 <- read_csv("ERCOT_DA_Prices_2018.csv")
+prices_dat_2019 <- read_csv("ERCOT_DA_Prices_2019.csv")
+```
+
+```{r Reading in Supplemental Data}
+# Reading in supplemental data
+supplemental_dat_PJM <- read_csv("Spot_PJM_Node.csv")
+supplemental_dat_ISONE_1 <- read_csv("Spot_ISONE_Node1.csv")
+supplemental_dat_ISONE_2 <- read_csv("Spot_ISONE_Node2.csv")
+```
+
+```{r Task 1}
+# Combining core historical data into one data structure
+prices_dat_full <- rbind(prices_dat_2016, 
+                         prices_dat_2017, 
+                         prices_dat_2018, 
+                         prices_dat_2019) %>% 
+  rename(date = Date)
+
+# Checking dimensions
+nrow(prices_dat_2016) + nrow(prices_dat_2017) + nrow(prices_dat_2018) + nrow(prices_dat_2019) == nrow(prices_dat_full)
+```
+
+***Locational Nature of Power Prices***
+
+```{r Task 2, warning = FALSE}
+# Creating a hub, settlement, and year-month, column
+prices_dat_full <- prices_dat_full %>% 
+  mutate(hb_lz = sub("_.*", "", SettlementPoint),
+         Settlement = sub(".*_", "", SettlementPoint),
+         year_month = format(date, "%Y-%m"))
+
+# Averaging by settlement point and year month
+task_2_output <- prices_dat_full %>% 
+  group_by(year_month, SettlementPoint) %>% 
+  summarize(AveragePrice = mean(Price))
+
+# Printing task 2 output
+task_2_output
+```
+
+```{r Task 3}
+# Separating month and year
+task_2_output <- task_2_output %>% 
+  mutate(year = sub("-.*", "", year_month),
+         Month = as.numeric(sub(".*-", "", year_month)),
+         Month = month.abb[Month])
+
+# Creating csv-ready data frame 
+task_3_output <- task_2_output[, 2:5]
+
+# Reading data frame to CSV
+write.csv(task_3_output, "AveragePriceByMonth.csv", row.names = FALSE)
+```
+
+***Price Volatility***
+
+```{r Task 4, warning = FALSE}
+# Creating hourly variable
+prices_dat_full <- prices_dat_full %>% 
+  mutate(hour = format(date, "%Y-%m-%d %H"),
+         Year = format(date, "%Y"))
+  
+# Creating separate data frame for task 4
+task_4_output <- prices_dat_full %>% 
+  filter(Price > 0) %>% 
+  filter(hb_lz == "HB") %>% 
+  mutate(LogPrice = log(Price)) %>% 
+  group_by(SettlementPoint, Year) %>% 
+  summarize(HourlyVolatility = sd(LogPrice))
+
+# Printing task 4 output
+task_4_output
+```
+
+```{r Task 5}
+# Reading Task 4 output to csv
+write.csv(task_4_output, "HourlyVolatilityByYear.csv", row.names = FALSE)
+```
+
+```{r Task 6}
+# Finding maximum for each year
+task_6_output <- task_4_output %>% 
+  group_by(Year) %>% 
+  top_n(1, HourlyVolatility)
+
+# Reading output to CSV
+write.csv(task_6_output, "MaxVolatilityByYear.csv", row.names = FALSE)
+```
+
+***Data Translation and Formatting***
+
+```{r Task 7, message = FALSE, warning = FALSE}
+# Formally factoring SettlementPoint variable
+prices_dat_full <- prices_dat_full %>% 
+  mutate(SettlementPoint = factor(SettlementPoint),
+         date_2 = format(date, "%Y-%m-%d"))
+
+# Conducting analysis for each settlementpoint -- briefly attempted to use for but was unable to figure it out in a time-efficient manner
+# First Level Construction
+first_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[1]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_BUSAVG) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[1]) %>%
+  select(Date, Variable, everything())
+
+# Output
+first_level
+
+# Second Level Construction
+second_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[2]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_HOUSTON) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[2]) %>%
+  select(Date, Variable, everything())
+
+# Output
+second_level
+
+# Third Level Construction
+third_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[3]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_HUBAVG) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[3]) %>%
+  select(Date, Variable, everything())
+
+# Output
+third_level
+
+# Fourth Level Construction
+fourth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[4]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_NORTH) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[4]) %>%
+  select(Date, Variable, everything())
+
+# Output
+fourth_level
+
+# Fifth Level Construction
+fifth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[5]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_PAN) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[5]) %>%
+  select(Date, Variable, everything())
+
+# Output
+fifth_level
+
+# Sixth Level Construction
+sixth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[6]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_SOUTH) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[6]) %>%
+  select(Date, Variable, everything())
+
+# Output
+sixth_level
+
+# Seventh Level Construction
+seventh_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[7]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(HB_WEST) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[7]) %>%
+  select(Date, Variable, everything())
+
+# Output
+seventh_level
+
+# Eighth Level Construction
+eighth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[8]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_AEN) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[8]) %>%
+  select(Date, Variable, everything())
+
+# Output
+eighth_level
+
+# Ninth Level Construction
+ninth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[9]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_CPS) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[9]) %>%
+  select(Date, Variable, everything())
+
+# Output
+ninth_level
+
+# tenth Level Construction
+tenth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[10]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_HOUSTON) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[10]) %>%
+  select(Date, Variable, everything())
+
+# Output
+tenth_level
+
+# Eleventh Level Construction
+eleventh_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[11]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_LCRA) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[11]) %>%
+  select(Date, Variable, everything())
+
+# Output
+eleventh_level
+
+# Twelfth Level Construction
+twelfth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[12]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_NORTH) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[12]) %>%
+  select(Date, Variable, everything())
+
+# Output
+twelfth_level
+
+# Thirteenth Level Construction
+thirteenth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[13]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_RAYBN) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[13]) %>%
+  select(Date, Variable, everything())
+
+# Output
+thirteenth_level
+
+# Fourteenth Level Construction
+fourteenth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[14]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_SOUTH) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[14]) %>%
+  select(Date, Variable, everything())
+
+# Output
+fourteenth_level
+
+# Fifteenth Level Construction
+fifteenth_level <- prices_dat_full %>% 
+  filter(SettlementPoint == levels(SettlementPoint)[15]) %>%
+  select(date_2, SettlementPoint, Price) %>% 
+  rename(Date = date_2) %>% 
+  pivot_wider(., names_from = SettlementPoint, values_from = Price) %>% 
+  unnest_wider(LZ_WEST) %>% 
+  mutate(Variable = levels(prices_dat_full$SettlementPoint)[15]) %>%
+  select(Date, Variable, everything())
+
+# Output
+fifteenth_level
+
+# Reading outputs into CSVs
+write.csv(first_level, "formattedSpotHistory/spot_HB_BUSAVG.csv", row.names = F)
+write.csv(second_level, "formattedSpotHistory/spot_HB_HOUSTON.csv", row.names = F)
+write.csv(third_level, "formattedSpotHistory/spot_HB_HUBAVG.csv", row.names = F)
+write.csv(fourth_level, "formattedSpotHistory/spot_HB_NORTH.csv", row.names = F)
+write.csv(fifth_level, "formattedSpotHistory/spot_HB_PAN.csv", row.names = F)
+write.csv(sixth_level, "formattedSpotHistory/spot_HB_SOUTH.csv", row.names = F)
+write.csv(seventh_level, "formattedSpotHistory/spot_HB_WEST.csv", row.names = F)
+write.csv(eighth_level, "formattedSpotHistory/spot_LZ_AEN.csv", row.names = F)
+write.csv(ninth_level, "formattedSpotHistory/spot_LZ_CPS.csv", row.names = F)
+write.csv(tenth_level, "formattedSpotHistory/spot_LZ_HOUSTON.csv", row.names = F)
+write.csv(eleventh_level, "formattedSpotHistory/spot_LZ_LCRA.csv", row.names = F)
+write.csv(twelfth_level, "formattedSpotHistory/spot_LZ_NORTH.csv", row.names = F)
+write.csv(thirteenth_level, "formattedSpotHistory/spot_LZ_RAYBN.csv", row.names = F)
+write.csv(fourteenth_level, "formattedSpotHistory/spot_LZ_SOUTH.csv", row.names = F)
+write.csv(fifteenth_level, "formattedSpotHistory/spot_LZ_WEST.csv", row.names = F)
+```
